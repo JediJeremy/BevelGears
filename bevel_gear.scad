@@ -2,7 +2,8 @@
 Spherical Involute Bevel Gears
 
    translated into english by @JediJeremy
-   modified to build single polyhedron, to fix geometry errors and improve speed
+   modified to build single polyhedron
+   fixed geometry errors
    added option to center gears at cone tip (for pairs)
    added options (foot, hub) to improve printability on 3D printers
    added options to subdivide surface into 'segments' along radius
@@ -27,16 +28,24 @@ Permitted modules according to DIN 780:
 */
 
 
-/* [Parametric Bevel Gear] */
+/* [Bevel Gear] */
 // display mode
-gear_display = "customizer"; // ["customizer", "single_test", "pair_test", "interference_test"]
+gear_display = "pair"; // ["single", "pair", "pair_interference"]
+// Number of gear teeth (1)
+gear1_teeth = 30; // [4:120]
+// Number of gear teeth (2)
+gear2_teeth = 10; // [4:120]
+// angle between bevel gears (degrees)
+bevel_angle = 90; // [10:120]
+/* [Bore Hole Parameters] */
+gear1_bore = 5; // [0:0.1:20]
+gear1_detent = 0.4; // [0:0.05:5]
+gear2_bore = 5; // [0:0.1:20]
+gear2_detent = 0.4; // [0:0.05:5]
 
+/* [Gear Parameters] */
 // Size of gear teeth at the crown
-gear_module = 4; // [0:0.1:60]
-// Number of gear teeth
-gear_teeth = 12; // [4:120]
-// (Half) angle of the cone on which the other ring gear rolls (degrees)
-cone_angle = 45; // [10:120]
+gear_module = 3; // [0:0.1:20]
 // Width of (straight) teeth from the outside towards the tip of the cone (mm)
 tooth_width = 15; // [1:100]
 // Pressure angle, standard value = 20 degrees according to DIN 867 (degrees)
@@ -44,9 +53,11 @@ pressure_angle = 20; // [10:40]
 // Helix angle (degrees)
 helix_angle = 30; // [-60:60]
 // height of 'foot' to improve printability (mm)
-gear_foot = 1; // [0:20]
+gear_foot = 1; // [0:0.1:20]
 // inset to 'hub' to improve printability (mm)
-gear_hub = 2; // [0:20]
+gear_hub = 2; // [0:0.1:20]
+// radial divisions of gear polygon
+gear_segments = 5; // [1:30]
 
 // Play between tooth flanks (in module units)
 gear_backlash = 0.00; // [-0.1:0.01:0.4]
@@ -56,41 +67,52 @@ gear_backlash = 0.00; // [-0.1:0.01:0.4]
 display_bevel_gear();
 
 module display_bevel_gear() {
-	if(gear_display=="customizer") {
+	if(gear_display=="single") {
 		// use customizer properties
-		bevel_gear(center=false); 
-	} else if(gear_display=="single_test") {
-		// test a single gear
-		bevel_gear_test(debug=true,printable=false);
-	} else if(gear_display=="pair_test") {
+		cone_angle = bevel_cone_angle(gear1_teeth, gear2_teeth, bevel_angle);
+		bevel_gear(
+			gear_module = gear_module, 
+			gear_teeth = gear1_teeth, 
+			cone_angle = cone_angle, 
+			tooth_width = tooth_width, 
+			pressure_angle = pressure_angle, 
+			helix_angle = helix_angle,
+			backlash = gear_backlash,
+			segments = gear_segments, 
+			foot = gear_foot,
+			hub = gear_hub,
+			bore_hole = gear1_bore, bore_detent = gear1_detent,
+			center=false
+		); 
+	} else if(gear_display=="pair") {
 		// test a pair of gears
-		bevel_gear_pair_test(interference=false);
-	} else if(gear_display=="interference_test") {
+		bevel_gear_pair(interference=false);
+	} else if(gear_display=="pair_interference") {
 		// interference fit test a pair of gears
-		bevel_gear_pair_test(interference=true);
+		bevel_gear_pair(interference=true);
 	} else {
 	}
 }
 
 
-module bevel_gear_pair_test(
-	gear1_teeth = 30,
-	gear2_teeth = 10,
-	interference = false
+module bevel_gear_pair(
+	gear1_teeth = gear1_teeth, // Number of gear teeth (2)
+	gear2_teeth = gear2_teeth, // Number of gear teeth (2)
+	bevel_angle = bevel_angle, // angle between bevel gears (degrees)
+	gear1_rotate = 360/gear1_teeth * $t,
+	gear2_rotate = -0.2,
+	interference = true,
+	debug = false
 ) {
-	// right-angle gear pair
-	intermediate_angle = atan2(gear2_teeth,gear1_teeth);
-	// echo("intermediate_angle",intermediate_angle);
-
-	cone_angle_1 = 90 - intermediate_angle;
-	cone_angle_2 = intermediate_angle;
-
-	// animated gear rotations
-	grz_1 = 360/gear1_teeth * $t;
-	grz_2 = 180/gear2_teeth - 360/gear2_teeth * $t - 0.2;
+	// compute angles for each gear against the other
+	cone_angle_1 = bevel_cone_angle(gear1_teeth, gear2_teeth, bevel_angle);
+	cone_angle_2 = bevel_cone_angle(gear2_teeth, gear1_teeth, bevel_angle);
+	// engaged gear rotations
+	grz_1 = gear1_rotate;
+	grz_2 = 180/gear2_teeth - gear1_rotate*gear1_teeth/gear2_teeth + gear2_rotate;
 	
 	// increase convexity if we're going to do intersections
-	convexity = interference ? 6 : 1;
+	convexity = interference ? 6 : 4;
 	
 	// draw the gears
 	debug_bevel_gear_pair(interference=interference) {
@@ -102,24 +124,28 @@ module bevel_gear_pair_test(
 			tooth_width = tooth_width, 
 			pressure_angle = pressure_angle, 
 			helix_angle = helix_angle, 
+			bore_hole = gear1_bore, bore_detent = gear1_detent,
 			center=true,
+			debug=debug, gear_color = debug ? [0.3,0.3,0.3] : "orange",
 			convexity=convexity
 		);
 		// gear 2
-		rotate([0,cone_angle_1+cone_angle_2,0]) rotate([0,0,grz_2]) bevel_gear(
+		rotate([0,bevel_angle,0]) rotate([0,0,grz_2]) bevel_gear(
 			gear_module = gear_module, 
 			gear_teeth = gear2_teeth, 
 			cone_angle = cone_angle_2, 
 			tooth_width = tooth_width, 
 			pressure_angle = pressure_angle, 
 			helix_angle = -helix_angle, 
-			center=true,
+			bore_hole = gear2_bore, bore_detent = gear2_detent,
+			center=true, 
+			debug=debug, gear_color = debug ? [0.3,0.3,0.3] : "orange",
 			convexity=convexity
 		);
 	}
 }
 
-module debug_bevel_gear_pair(interference=true) {
+module debug_bevel_gear_pair(interference=false) {
 	if(interference) {
 		// gear pair interference check
 		color("red") intersection() {
@@ -127,16 +153,14 @@ module debug_bevel_gear_pair(interference=true) {
 			children(1);
 		}
 		// gear pair
-		color("white" ,0.4) {
+		color("white" ,0.1) {
 			children(0);
 			children(1);
 		}
 	} else {
 		// solid gear pair
-		color("orange") {
-			children(0);
-			children(1);
-		}
+		children(0);
+		children(1);
 	}
 }
 
@@ -158,6 +182,20 @@ module bevel_gear_test(debug=false,printable=true) {
 		gear_color = debug ? [0.3,0.3,0.3] : "orange"
 	);
 }
+
+function bevel_cone_tip(gear1_teeth, gear2_teeth, pair_angle=90, gear_module=1) = 
+	let( 
+		c = gear1_teeth*[1,0]/2 + gear2_teeth*[cos(pair_angle), sin(pair_angle)]/2, // center of gear2 if gear1 is at origin
+		v = [-sin(pair_angle), cos(pair_angle)], // direction vector from c2 towards tip
+		iy = c[1] - v[1]*c[0]/v[0] // intersection of vector from center with y axis
+	)
+	gear_module * iy;
+
+function bevel_cone_angle(gear1_teeth, gear2_teeth, pair_angle=90) = 
+	let(
+		ty = bevel_cone_tip(gear1_teeth, gear2_teeth, pair_angle) // y position of cone tip
+	)
+	atan2(gear1_teeth/2,ty);
 
 /*  Spherical involute function
      Returns the polar coordinates of a spherical involute
@@ -215,23 +253,29 @@ module bevel_debug_line(p1,p2,width=0.1,fast=true) {
 	 helix_angle = helix angle, standard value = 0 degrees 
 */
 module bevel_gear(
-	gear_module = gear_module, 
-	gear_teeth = gear_teeth, 
-	cone_angle = cone_angle, 
+	gear_module = 2, 
+	gear_teeth = 10, 
+	cone_angle = undef, 
+	bevel_angle = 90,
+	other_teeth = undef, 
 	tooth_width = tooth_width, 
 	pressure_angle = pressure_angle, 
 	helix_angle = helix_angle,
 	backlash = gear_backlash,
-	segments = 10, 
-	foot = gear_foot,
-	hub = gear_hub,
+	segments = gear_segments, 
+	foot = undef,
+	hub = undef,
 	center = true,
-	gear_color = [0.3,0.3,0.3],
+	bore_hole = 0, bore_detent = 0, bore_fn=32,
+	gear_color = "orange",
 	opacity = 1,
-	convexity = 2,
+	convexity = 4,
 	debug = false
 ) {
-
+	// default values
+	foot = (foot==undef) ? ( cone_angle>60 ? 0 : gear_foot ) : foot;
+	hub = (hub==undef) ? ( cone_angle>30 ? gear_hub : 0 ) : hub;
+	cone_angle = (cone_angle==undef) ? bevel_cone_angle(gear_teeth, other_teeth, bevel_angle) : cone_angle;
 	// Dimension calculations
 	d_outer = gear_module * gear_teeth;							// Pitch cone diameter on the cone base surface,
 																// corresponds to the chord in the spherical section
@@ -323,11 +367,24 @@ module bevel_gear(
 				hub ? bevel_crown_hub(ring_point_count*(ring_count-1), tooth_point_count, gear_teeth) // top hub
 					: bevel_crown_cap(ring_point_count*(ring_count-1), tooth_point_count, gear_teeth, flip=false) // top cap
 			);
-			color(gear_color,opacity) polyhedron(
-				points = poly_points,
-				faces = poly_faces,
-				convexity = convexity
-			);
+			color(gear_color,opacity) difference() {
+				// gear poly
+				polyhedron(
+					points = poly_points,
+					faces = poly_faces,
+					convexity = convexity
+				);
+				// bore hole
+				if(bore_hole) {
+					linear_extrude(
+						height = height_f+foot+1,
+						convexity = convexity
+					) difference() {
+						circle(d=bore_hole, $fn=bore_fn);
+						translate([bore_hole/2 - bore_detent, -bore_hole/2]) square(bore_hole*[1,1]);
+					}
+				}
+			}
 		}
 	}
 }
